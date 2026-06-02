@@ -24,3 +24,28 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+@import "tailwindcss";
+
+@theme {
+  /* Brand Colors */
+  --color-primary: #0B2374; /* The deep navy blue from your UI */
+  --color-primary-foreground: #FFFFFF;
+  
+  /* Semantic Colors */
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  
+  /* Layout Colors */
+  --color-background: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-text-main: #0F172A;
+  --color-text-muted: #64748B;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text-main);
+  }
+}
