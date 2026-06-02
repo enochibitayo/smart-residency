@@ -13,7 +13,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     { name: "Room", href: "/student/room", icon: DoorClosed },
     { name: "Track", href: "/student/exeat", icon: MapPin }, // Using exeat route for tracking demo
     { name: "Complaint", href: "/student/complaints", icon: FileWarning },
-    { name: "Profile", href: "#", icon: User },
+    { name: "Profile", href: "/student/profile", icon: User },
   ];
 
   return (
