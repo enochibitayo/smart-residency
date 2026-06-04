@@ -7,8 +7,8 @@ import { supabase } from "../../lib/supabase";
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState({
     totalStudents: 0,
-    availableRooms: 0,
-    totalRooms: 0,
+    availableBeds: 0,
+    totalBeds: 0,
     pendingComplaints: 0,
     pendingExeats: 0,
   });
@@ -23,21 +23,18 @@ export default function AdminDashboardPage() {
           .select("*", { count: "exact", head: true })
           .eq("role", "student");
 
-        // 2. Fetch Room Availability
-        const { data: rooms } = await supabase.from("rooms").select("id, capacity");
-        const { data: allocations } = await supabase.from("allocations").select("room_id");
+        // 2. Fetch Bed Availability (Instead of whole rooms)
+        const { data: rooms } = await supabase.from("rooms").select("capacity");
+        const { count: occupiedBeds } = await supabase.from("allocations").select("*", { count: "exact", head: true });
 
-        let totalRooms = rooms?.length || 0;
-        let availableRoomsCount = 0;
-
+        let totalBedsCount = 0;
         if (rooms) {
           rooms.forEach(room => {
-            const occupants = allocations?.filter(a => a.room_id === room.id).length || 0;
-            if (occupants < room.capacity) {
-              availableRoomsCount++;
-            }
+            totalBedsCount += room.capacity;
           });
         }
+        
+        const availableBedsCount = totalBedsCount - (occupiedBeds || 0);
 
         // 3. Fetch Pending Complaints
         const { count: complaintCount } = await supabase
@@ -53,8 +50,8 @@ export default function AdminDashboardPage() {
 
         setStats({
           totalStudents: studentCount || 0,
-          availableRooms: availableRoomsCount,
-          totalRooms: totalRooms,
+          availableBeds: availableBedsCount,
+          totalBeds: totalBedsCount,
           pendingComplaints: complaintCount || 0,
           pendingExeats: exeatCount || 0,
         });
@@ -66,7 +63,19 @@ export default function AdminDashboardPage() {
       }
     };
 
+    // Initial Fetch
     fetchDashboardStats();
+    
+    // Live Feed Subscription for the Dashboard Stats
+    const channels = supabase.channel('admin-dashboard-stats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'allocations' }, () => fetchDashboardStats())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, () => fetchDashboardStats())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exeats' }, () => fetchDashboardStats())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channels);
+    };
   }, []);
 
   if (isLoading) {
@@ -101,15 +110,15 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Available Rooms Card */}
+        {/* Available Beds Card (Corrected Metric) */}
         <div className="bg-surface border border-gray-100 rounded-xl p-6 shadow-sm flex items-center space-x-4 transition-all hover:shadow-md">
           <div className="p-4 bg-success/10 text-success rounded-xl">
             <DoorClosed className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Available Rooms</p>
-            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.availableRooms}</h3>
-            <p className="text-xs font-medium text-text-muted mt-1">Out of {stats.totalRooms} total rooms</p>
+            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Available Beds</p>
+            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.availableBeds}</h3>
+            <p className="text-xs font-medium text-text-muted mt-1">Out of {stats.totalBeds} total beds</p>
           </div>
         </div>
 

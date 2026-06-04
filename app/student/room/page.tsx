@@ -11,52 +11,71 @@ export default function StudentRoomPage() {
   const [occupants, setOccupants] = useState<any[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>("");
 
-  useEffect(() => {
-    const fetchRoomDetails = async () => {
-      try {
-        // 1. Authenticate the active student
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) throw new Error("Not authenticated");
-        
-        setCurrentUserId(user.id);
+  const fetchRoomDetails = async () => {
+    try {
+      // 1. Authenticate the active student
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw new Error("Not authenticated");
+      
+      setCurrentUserId(user.id);
 
-        // 2. Find which room this student is allocated to
-        const { data: allocation, error: allocError } = await supabase
-          .from("allocations")
-          .select(`room_id, rooms (id, block, room_number, capacity)`)
-          .eq("student_id", user.id)
-          .single();
+      // 2. Find which room this student is allocated to
+      const { data: allocation, error: allocError } = await supabase
+        .from("allocations")
+        .select(`room_id, rooms (id, block, room_number, capacity)`)
+        .eq("student_id", user.id)
+        .single();
 
-        // If no allocation is found, stop loading and leave roomInfo as null
-        if (allocError || !allocation) {
-          setIsLoading(false);
-          return; 
-        }
-
-        const roomData = allocation.rooms as any;
-        setRoomInfo(roomData);
-
-        // 3. Fetch all students sharing this exact room
-        const { data: roomOccupants } = await supabase
-          .from("allocations")
-          .select(`student_id, profiles (full_name)`)
-          .eq("room_id", roomData.id);
-
-        if (roomOccupants) {
-          setOccupants(roomOccupants);
-        }
-
-      } catch (error) {
-        console.error("Error fetching room details:", error);
-      } finally {
+      if (allocError || !allocation) {
+        setRoomInfo(null);
         setIsLoading(false);
+        return; 
       }
-    };
 
+      // Handle Supabase join object safely
+      const roomData = Array.isArray(allocation.rooms) ? allocation.rooms[0] : allocation.rooms;
+      setRoomInfo(roomData);
+
+      // 3. Fetch all students sharing this exact room (Fixed Query)
+      const { data: roomOccupants } = await supabase
+        .from("allocations")
+        .select(`student_id, profiles (full_name)`)
+        .eq("room_id", allocation.room_id);
+
+      if (roomOccupants) {
+        setOccupants(roomOccupants);
+      }
+
+    } catch (error) {
+      console.error("Error fetching room details:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch
     fetchRoomDetails();
+
+    // 4. LIVE FEED SUBSCRIPTION
+    const channel = supabase
+      .channel('live-student-room')
+      .on(
+        'postgres_changes', 
+        { event: '*', schema: 'public', table: 'allocations' }, 
+        () => {
+          // Instantly refresh the UI if a roommate is added or removed
+          fetchRoomDetails(); 
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  // Helper function to extract initials for the UI avatars
+  // Helper function to extract initials
   const getInitials = (name: string) => {
     if (!name) return "S";
     const parts = name.split(" ");
@@ -83,7 +102,7 @@ export default function StudentRoomPage() {
       <div className="p-6 space-y-6">
         
         {!roomInfo ? (
-          // PENDING ALLOCATION STATE
+          // PENDING STATE
           <div className="bg-surface p-8 rounded-2xl shadow-sm border border-warning/20 flex flex-col items-center text-center mt-4">
             <div className="w-16 h-16 bg-warning/10 text-warning rounded-full flex items-center justify-center mb-4">
               <Info className="h-8 w-8" />
@@ -94,7 +113,7 @@ export default function StudentRoomPage() {
             </p>
           </div>
         ) : (
-          // ASSIGNED ROOM STATE
+          // ASSIGNED STATE
           <div className="bg-surface rounded-2xl shadow-sm border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95">
             <div className="bg-success/10 p-6 flex flex-col items-center justify-center border-b border-gray-100">
               <div className="w-16 h-16 bg-success/20 text-success rounded-full flex items-center justify-center mb-3 shadow-inner">
@@ -112,7 +131,9 @@ export default function StudentRoomPage() {
                 {/* 1. Map through actual occupants */}
                 {occupants.map((occ) => {
                   const isMe = occ.student_id === currentUserId;
-                  const fullName = occ.profiles?.full_name || "Unknown Resident";
+                  const profileData = Array.isArray(occ.profiles) ? occ.profiles[0] : occ.profiles;
+                  const fullName = profileData?.full_name || "Unknown Resident";
+                  
                   return (
                     <li key={occ.student_id} className="flex items-center space-x-3">
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
@@ -127,7 +148,7 @@ export default function StudentRoomPage() {
                   );
                 })}
 
-                {/* 2. Dynamically render empty bed spaces based on capacity */}
+                {/* 2. Dynamically render empty bed spaces */}
                 {Array.from({ length: Math.max(0, roomInfo.capacity - occupants.length) }).map((_, index) => (
                   <li key={`empty-${index}`} className="flex items-center space-x-3 opacity-50">
                     <div className="h-10 w-10 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-text-muted shrink-0">
@@ -141,7 +162,7 @@ export default function StudentRoomPage() {
           </div>
         )}
 
-        {/* Quick Action - Only shown if they have a room */}
+        {/* Quick Action */}
         {roomInfo && (
           <Link 
             href="/student/complaints"
