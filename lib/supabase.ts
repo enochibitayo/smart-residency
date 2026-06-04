@@ -10,4 +10,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Initialize and export the Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);new u
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

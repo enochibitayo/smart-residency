@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Wrench, Camera, AlertTriangle, CheckCircle, MapPin, Loader2, AlertCircle } from "lucide-react";
-import { supabase } from "../../../lib/supabase"; // Ensure this path is correct
+import { supabase } from "../../../lib/supabase"; 
 
 export default function ComplaintsPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -12,7 +12,7 @@ export default function ComplaintsPage() {
   // Form State
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState("medium");
+  const [priority, setPriority] = useState("Medium"); // Capitalized to perfectly match the Admin dashboard
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +49,7 @@ export default function ComplaintsPage() {
       // Clear form for the next submission
       setCategory("");
       setDescription("");
-      setPriority("medium");
+      setPriority("Medium");
 
     } catch (error: any) {
       setErrorMessage(error.message || "Failed to submit complaint. Please try again.");

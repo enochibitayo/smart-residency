@@ -1,174 +1,185 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Wrench, HeartPulse, Filter, Search, CheckCircle, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Search, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
+import { supabase } from "../../../lib/supabase";
 
 export default function AdminComplaintsPage() {
-  const [complaints, setComplaints] = useState([
-    { 
-      id: "C-1042", 
-      student: "Tobi Bankole", 
-      room: "Block B - 204", 
-      category: "Health Issue", 
-      priority: "High", 
-      description: "Severe asthma attack, needs immediate nebulizer.",
-      escalation: "Routed to Health Center", 
-      time: "2 mins ago",
-      assigned: true // Auto-routed
-    },
-    { 
-      id: "C-1041", 
-      student: "Oyebode Precious", 
-      room: "Block A - 101", 
-      category: "Plumbing", 
-      priority: "High", 
-      description: "Main pipe burst, water flooding the entire room.",
-      escalation: "Direct to Technician", 
-      time: "15 mins ago",
-      assigned: true // Auto-routed
-    },
-    { 
-      id: "C-1040", 
-      student: "Mary Johnson", 
-      room: "Block C - 305", 
-      category: "Electrical", 
-      priority: "Medium", 
-      description: "Ceiling fan is making a loud grinding noise.",
-      escalation: "Pending DSA Review", 
-      time: "2 hours ago",
-      assigned: false // Needs manual assignment
-    },
-    { 
-      id: "C-1039", 
-      student: "David Yakubu", 
-      room: "Block B - 112", 
-      category: "Carpentry", 
-      priority: "Low", 
-      description: "Wardrobe door hinge is loose.",
-      escalation: "Porter Assigned", 
-      time: "1 day ago",
-      assigned: false // Needs manual assignment
-    }
-  ]);
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"Pending" | "Resolved">("Pending");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const handleAssign = (id: string) => {
-    setComplaints(complaints.map(ticket => 
-      ticket.id === id ? { ...ticket, assigned: true, escalation: "Technician Dispatched" } : ticket
-    ));
+  const fetchComplaints = async () => {
+    try {
+      // Correct relational join syntax to pull the student's details
+      const { data, error } = await supabase
+        .from("complaints")
+        .select(`*, profiles (full_name, matric_number)`)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      if (data) setComplaints(data);
+    } catch (error) {
+      console.error("Error fetching complaints:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto h-full flex flex-col">
+  useEffect(() => {
+    // 1. Fetch initial data on page load
+    fetchComplaints();
+
+    // 2. Subscribe to LIVE database changes via WebSockets
+    const channel = supabase
+      .channel('live-complaints')
+      .on(
+        'postgres_changes', 
+        { event: '*', schema: 'public', table: 'complaints' }, 
+        (payload) => {
+          // Instantly refresh the table when a new request arrives or is updated
+          fetchComplaints(); 
+        }
+      )
+      .subscribe();
+
+    // 3. Clean up the connection when leaving the page
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleResolve = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("complaints")
+        .update({ status: "Resolved", escalation_stage: "Closed" })
+        .eq("id", id);
+        
+      if (error) throw error;
       
-      {/* Header */}
+      // Optimistically update the UI for a snappy feel
+      setComplaints(complaints.map(c => c.id === id ? { ...c, status: "Resolved" } : c));
+    } catch (error) {
+      console.error("Error resolving complaint:", error);
+    }
+  };
+
+  // Filter based on active tab and search query
+  const filteredComplaints = complaints.filter(c => 
+    c.status === activeTab &&
+    (
+      c.category?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      c.profiles?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.profiles?.matric_number?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  );
+
+  return (
+    <div className="space-y-6 h-full flex flex-col">
+      
+      {/* Header & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-text-main uppercase tracking-tight">Issue Tracker & Routing</h1>
-          <p className="text-sm text-text-muted mt-1">Smart escalation matrix for maintenance and health.</p>
+          <h1 className="text-2xl font-bold text-text-main uppercase tracking-tight">Maintenance Issues</h1>
+          <p className="text-sm text-text-muted mt-1">Track and resolve student room complaints.</p>
         </div>
-        
-        <div className="flex items-center space-x-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-text-muted" />
-            <input 
-              type="text" 
-              placeholder="Search ticket ID or room..." 
-              className="pl-9 pr-4 py-2 bg-surface border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary w-64"
-            />
-          </div>
-          <button className="px-4 py-2 bg-surface border border-gray-200 text-text-main rounded-lg text-sm font-semibold hover:border-primary transition-colors flex items-center">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
-          </button>
+        <div className="relative group w-full sm:w-72">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-text-muted group-focus-within:text-primary transition-colors" />
+          <input 
+            type="text" 
+            placeholder="Search category or name..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 bg-surface border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-text-main"
+          />
         </div>
       </div>
 
-      {/* Main Card */}
-      <div className="bg-surface rounded-xl shadow-sm border border-gray-200 flex flex-col flex-1 overflow-hidden">
-        <div className="overflow-x-auto flex-1 p-2">
-          
-          <div className="grid gap-4 p-4">
-            {complaints.map((ticket) => (
-              <div key={ticket.id} className="border border-gray-100 rounded-xl p-5 hover:shadow-md transition-shadow bg-background/50 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4 pl-8">
-                
-                {/* Visual Priority Indicator Line on the left */}
-                <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
-                  ticket.priority === "High" && ticket.category === "Health Issue" ? "bg-danger" :
-                  ticket.priority === "High" ? "bg-warning" :
-                  ticket.priority === "Medium" ? "bg-primary" : "bg-gray-300"
-                }`} />
-
-                {/* Left Section: Ticket Info */}
-                <div className="flex items-start space-x-4">
-                  <div className={`p-3 rounded-xl flex shrink-0 ${
-                    ticket.category === "Health Issue" ? "bg-danger/10 text-danger" :
-                    "bg-primary/10 text-primary"
-                  }`}>
-                    {ticket.category === "Health Issue" ? <HeartPulse className="h-6 w-6" /> : <Wrench className="h-6 w-6" />}
-                  </div>
-                  
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-surface border border-gray-200 text-text-muted">
-                        {ticket.id}
-                      </span>
-                      <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full ${
-                        ticket.priority === "High" ? "bg-danger/10 text-danger" :
-                        ticket.priority === "Medium" ? "bg-warning/10 text-warning" :
-                        "bg-gray-100 text-text-muted"
-                      }`}>
-                        {ticket.priority} Priority
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-text-main mt-1.5">{ticket.description}</h3>
-                    <p className="text-sm text-text-muted mt-1">
-                      Reported by <span className="font-semibold text-text-main">{ticket.student}</span> in <span className="font-semibold text-text-main">{ticket.room}</span> • {ticket.time}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Right Section: Smart Escalation Status & Actions */}
-                <div className="flex flex-col md:items-end space-y-3 min-w-[200px]">
-                  
-                  <div className="bg-surface border border-gray-100 px-4 py-2 rounded-lg text-right w-full">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-0.5">Escalation Status</p>
-                    <div className="flex items-center md:justify-end space-x-2">
-                      {ticket.assigned ? (
-                        <CheckCircle className="h-4 w-4 text-success" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4 text-warning animate-pulse" />
-                      )}
-                      <span className={`text-sm font-extrabold ${
-                        ticket.assigned && ticket.escalation.includes("Health") ? "text-danger" :
-                        ticket.assigned ? "text-success" :
-                        "text-warning"
-                      }`}>
-                        {ticket.escalation}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Action Button */}
-                  {!ticket.assigned ? (
-                    <button 
-                      onClick={() => handleAssign(ticket.id)}
-                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-primary text-white text-sm font-bold rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
-                    >
-                      <Send className="h-4 w-4" />
-                      <span>Assign Technician</span>
-                    </button>
-                  ) : (
-                    <button className="text-sm font-bold text-text-muted hover:text-primary transition-colors">
-                      View Audit Trail &rarr;
-                    </button>
-                  )}
-
-                </div>
-              </div>
-            ))}
-          </div>
-
+      {/* Main Data Card */}
+      <div className="bg-surface rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden min-h-[400px]">
+        
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 px-6 pt-2">
+          {(["Pending", "Resolved"] as const).map((tab) => {
+            const count = complaints.filter(c => c.status === tab).length;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-4 text-sm font-bold border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === tab ? "border-primary text-primary" : "border-transparent text-text-muted hover:text-text-main"
+                }`}
+              >
+                <span>{tab}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === tab ? "bg-primary/10 text-primary" : "bg-gray-100 text-gray-500"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
+
+        {/* Dynamic Table Content */}
+        {isLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <Loader2 className="h-8 w-8 text-primary animate-spin mb-4" />
+            <p className="text-sm font-bold text-text-muted">Syncing Tickets...</p>
+          </div>
+        ) : filteredComplaints.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-text-muted text-sm font-medium">
+            No {activeTab.toLowerCase()} tickets found.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-background border-b border-gray-200 text-xs uppercase tracking-wider text-text-muted">
+                  <th className="px-6 py-4 font-bold">Ticket Details</th>
+                  <th className="px-6 py-4 font-bold">Reported By</th>
+                  <th className="px-6 py-4 font-bold text-center">Priority</th>
+                  <th className="px-6 py-4 font-bold text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredComplaints.map((ticket) => (
+                  <tr key={ticket.id} className="hover:bg-primary/5 transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="text-sm font-bold text-text-main">{ticket.category}</p>
+                      <p className="text-xs text-text-muted mt-1 truncate max-w-xs">{ticket.description}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm font-bold text-text-main">{ticket.profiles?.full_name || "Unknown Resident"}</p>
+                      <p className="text-xs text-text-muted">{ticket.profiles?.matric_number || "No Matric Number"}</p>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-flex items-center space-x-1 text-xs font-bold ${
+                        ticket.priority === 'High' ? 'text-danger' : 
+                        ticket.priority === 'Medium' ? 'text-warning' : 'text-success'
+                      }`}>
+                        {ticket.priority === 'High' && <AlertTriangle className="h-3 w-3" />}
+                        <span>{ticket.priority}</span>
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {ticket.status === "Pending" ? (
+                        <button 
+                          onClick={() => handleResolve(ticket.id)} 
+                          className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-md text-xs font-bold transition-colors flex items-center justify-end ml-auto shadow-sm"
+                        >
+                          <CheckCircle className="h-3 w-3 mr-1" /> Resolve
+                        </button>
+                      ) : (
+                        <span className="text-xs text-text-muted font-medium bg-gray-50 px-2 py-1 rounded-md border border-gray-100">Closed</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

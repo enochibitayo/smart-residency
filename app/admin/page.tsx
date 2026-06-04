@@ -1,84 +1,156 @@
 "use client";
 
-import { Users, DoorClosed, FileWarning, MapPin, TrendingUp, LayoutDashboard } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Users, DoorClosed, AlertTriangle, MapPin, CheckCircle, Loader2 } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
 export default function AdminDashboardPage() {
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    availableRooms: 0,
+    totalRooms: 0,
+    pendingComplaints: 0,
+    pendingExeats: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        // 1. Fetch Total Active Students
+        const { count: studentCount } = await supabase
+          .from("profiles")
+          .select("*", { count: "exact", head: true })
+          .eq("role", "student");
+
+        // 2. Fetch Room Availability
+        const { data: rooms } = await supabase.from("rooms").select("id, capacity");
+        const { data: allocations } = await supabase.from("allocations").select("room_id");
+
+        let totalRooms = rooms?.length || 0;
+        let availableRoomsCount = 0;
+
+        if (rooms) {
+          rooms.forEach(room => {
+            const occupants = allocations?.filter(a => a.room_id === room.id).length || 0;
+            if (occupants < room.capacity) {
+              availableRoomsCount++;
+            }
+          });
+        }
+
+        // 3. Fetch Pending Complaints
+        const { count: complaintCount } = await supabase
+          .from("complaints")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "Pending");
+
+        // 4. Fetch Pending Exeats
+        const { count: exeatCount } = await supabase
+          .from("exeats")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "Pending");
+
+        setStats({
+          totalStudents: studentCount || 0,
+          availableRooms: availableRoomsCount,
+          totalRooms: totalRooms,
+          pendingComplaints: complaintCount || 0,
+          pendingExeats: exeatCount || 0,
+        });
+
+      } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardStats();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-10 w-10 text-primary animate-spin" />
+        <p className="text-sm font-bold text-text-muted">Syncing Live Metrics...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20 md:pb-0">
-      
-      {/* Page Title */}
+    <div className="space-y-6 max-w-7xl mx-auto h-full">
       <div>
-        <h1 className="text-2xl font-bold text-text-main">Dashboard Overview</h1>
-        <p className="text-sm text-text-muted">Live metrics and system status.</p>
+        <h1 className="text-2xl font-bold text-text-main uppercase tracking-tight">Dashboard Overview</h1>
+        <p className="text-sm text-text-muted mt-1">Live metrics synced from Supabase Database.</p>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-6">
         
         {/* Total Students Card */}
-        <div className="bg-surface p-6 rounded-xl border border-gray-100 shadow-sm flex items-center space-x-4">
-          <div className="p-4 bg-primary/10 text-primary rounded-lg">
+        <div className="bg-surface border border-gray-100 rounded-xl p-6 shadow-sm flex items-center space-x-4 transition-all hover:shadow-md">
+          <div className="p-4 bg-primary/10 text-primary rounded-xl">
             <Users className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm text-text-muted font-medium">Total Students</p>
-            <h2 className="text-2xl font-bold text-text-main">1,240</h2>
-            <p className="text-xs text-success flex items-center mt-1">
-              <TrendingUp className="h-3 w-3 mr-1" /> +12 this week
+            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Total Students</p>
+            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.totalStudents}</h3>
+            <p className="text-xs font-bold text-success mt-1 flex items-center">
+              <span className="mr-1">↗</span> Active in system
             </p>
           </div>
         </div>
 
-        {/* Room Availability Card */}
-        <div className="bg-surface p-6 rounded-xl border border-gray-100 shadow-sm flex items-center space-x-4">
-          <div className="p-4 bg-success/10 text-success rounded-lg">
+        {/* Available Rooms Card */}
+        <div className="bg-surface border border-gray-100 rounded-xl p-6 shadow-sm flex items-center space-x-4 transition-all hover:shadow-md">
+          <div className="p-4 bg-success/10 text-success rounded-xl">
             <DoorClosed className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm text-text-muted font-medium">Available Rooms</p>
-            <h2 className="text-2xl font-bold text-text-main">48</h2>
-            <p className="text-xs text-text-muted mt-1">Out of 320 total rooms</p>
+            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Available Rooms</p>
+            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.availableRooms}</h3>
+            <p className="text-xs font-medium text-text-muted mt-1">Out of {stats.totalRooms} total rooms</p>
           </div>
         </div>
 
         {/* Pending Complaints Card */}
-        <div className="bg-surface p-6 rounded-xl border border-gray-100 shadow-sm flex items-center space-x-4">
-          <div className="p-4 bg-danger/10 text-danger rounded-lg">
-            <FileWarning className="h-6 w-6" />
+        <div className="bg-surface border border-gray-100 rounded-xl p-6 shadow-sm flex items-center space-x-4 transition-all hover:shadow-md">
+          <div className="p-4 bg-danger/10 text-danger rounded-xl">
+            <AlertTriangle className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm text-text-muted font-medium">Pending Complaints</p>
-            <h2 className="text-2xl font-bold text-text-main">14</h2>
-            <p className="text-xs text-danger flex items-center mt-1">
-              Requires immediate action
-            </p>
+            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Pending Complaints</p>
+            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.pendingComplaints}</h3>
+            {stats.pendingComplaints === 0 ? (
+              <p className="text-xs font-bold text-success mt-1">All clear</p>
+            ) : (
+              <p className="text-xs font-bold text-danger mt-1">Requires attention</p>
+            )}
           </div>
         </div>
 
-        {/* Pending Exeats Card */}
-        <div className="bg-surface p-6 rounded-xl border border-gray-100 shadow-sm flex items-center space-x-4">
-          <div className="p-4 bg-warning/10 text-warning rounded-lg">
+        {/* Exeat Requests Card */}
+        <div className="bg-surface border border-gray-100 rounded-xl p-6 shadow-sm flex items-center space-x-4 transition-all hover:shadow-md">
+          <div className="p-4 bg-warning/10 text-warning rounded-xl">
             <MapPin className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm text-text-muted font-medium">Exeat Requests</p>
-            <h2 className="text-2xl font-bold text-text-main">8</h2>
-            <p className="text-xs text-warning flex items-center mt-1">
-              Awaiting DSA approval
-            </p>
+            <p className="text-xs font-bold text-text-muted uppercase tracking-wider">Exeat Requests</p>
+            <h3 className="text-2xl font-extrabold text-text-main leading-tight">{stats.pendingExeats}</h3>
+            <p className="text-xs font-medium text-warning mt-1">Awaiting DSA approval</p>
           </div>
         </div>
-
       </div>
 
-      {/* Real-Time Tracking Preview */}
-      <div className="bg-surface border border-gray-100 rounded-xl shadow-sm p-6 mt-6">
-        <h2 className="text-lg font-bold text-text-main mb-4">System Activity Feed</h2>
-        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-gray-200 rounded-lg">
-          <LayoutDashboard className="h-10 w-10 text-gray-300 mb-3" />
-          <h3 className="text-text-main font-semibold">Real-Time Tables Initializing...</h3>
-          <p className="text-text-muted text-sm max-w-md mt-2">
-            The full Room Allocation engine and Exeat Approval workflow will be wired up to the database in the next phase.
+      {/* System Status Banner */}
+      <div className="mt-6 bg-surface border border-success/20 rounded-xl p-6 shadow-sm flex items-start space-x-4">
+        <div className="p-2 bg-success/10 text-success rounded-full shrink-0">
+          <CheckCircle className="h-6 w-6" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-text-main">Database Engine Active</h3>
+          <p className="text-sm text-text-muted mt-1">
+            The Smart Residency backend is fully connected. Allocations, Exeats, and Complaints are updating in real-time.
           </p>
         </div>
       </div>
